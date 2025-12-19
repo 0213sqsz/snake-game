@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>蛇对蛇 - 贪吃蛇小游戏</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #1a1a1a;
+            color: #fff;
+            padding: 20px;
+        }
+        .game-info {
+            display: flex;
+            justify-content: space-between;
+            width: 800px;
+            margin-bottom: 10px;
+            font-size: 18px;
+            background: #222;
+            padding: 10px 15px;
+            border-radius: 8px;
+        }
+        .info-item {
+            padding: 5px 10px;
+            background-color: #333;
+            border-radius: 4px;
+        }
+        .game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+        }
+        canvas {
+            border: 2px solid #4CAF50;
+            background-color: #000;
+            width: 100%;
+            height: 100%;
+        }
+        .sound-control-wrapper {
+            width: 800px;
+            text-align: right;
+            margin-bottom: 5px;
+        }
+        .sound-control {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background-color: #333;
+            padding: 8px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .sound-icon {
+            font-size: 18px;
+        }
+        .game-tips-wrapper {
+            width: 800px;
+            margin-top: 10px;
+            text-align: center;
+        }
+        .game-tips {
+            font-size: 14px;
+            color: #ccc;
+            background: #222;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .modal {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+        .modal-title {
+            font-size: 36px;
+            margin-bottom: 20px;
+            color: #4CAF50;
+        }
+        .modal-desc {
+            font-size: 18px;
+            margin-bottom: 30px;
+            text-align: center;
+            padding: 0 20px;
+        }
+        .modal-btn {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            border: none;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 18px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .modal-btn:hover {
+            background-color: #45a049;
+        }
+        .hidden {
+            display: none;
+        }
+        .audio-status-wrapper {
+            width: 800px;
+            text-align: left;
+            margin-top: 5px;
+        }
+        .audio-status {
+            font-size: 12px;
+            color: #666;
+            background: #222;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-info">
+        <div class="info-item">积分: <span id="score">0</span></div>
+        <div class="info-item">长度: <span id="length">3</span></div>
+        <div class="info-item">击杀数: <span id="killCount">0</span></div>
+        <div class="info-item">游戏时间: <span id="gameTime">0</span>s</div>
+    </div>
+
+    <div class="sound-control-wrapper">
+        <div class="sound-control" onclick="toggleSound()">
+            <span class="sound-icon" id="soundIcon">🔊</span>
+            <span id="soundText">开启音效</span>
+        </div>
+    </div>
+
+    <div class="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="startModal" class="modal">
+            <div class="modal-title">蛇对蛇</div>
+            <!-- 优化2：移除胜利条件提示，只保留操作说明 -->
+            <div class="modal-desc">WASD控制方向 | J加速 | 躲避敌人 | 收集食物<br>普通食物(绿)+10 | 高级食物(金)+40 | 特殊食物(红)+25 | 击杀敌人+50</div>
+            <button class="modal-btn" onclick="startGame()">开始游戏</button>
+        </div>
+        <div id="endModal" class="modal hidden">
+            <div class="modal-title" id="endTitle">游戏结束</div>
+            <div class="modal-desc" id="endDesc"></div>
+            <button class="modal-btn" onclick="resetGame()">重新开始</button>
+        </div>
+    </div>
+
+    <div class="audio-status-wrapper">
+        <div class="audio-status" id="audioStatus">音频加载中...</div>
+    </div>
+
+    <div class="game-tips-wrapper">
+        <div class="game-tips">
+            <!-- 优化2：移除胜利条件提示，只保留操作说明 -->
+            操作说明：W(上) | A(左) | S(下) | D(右) | J(加速) | 右上角控制音效
+        </div>
+    </div>
+
+    <script>
+        // 1. 基础配置
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gridSize = 20;
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+
+        // 游戏状态
+        let gameState = 'ready';
+        let score = 0;
+        let snakeLength = 3;
+        let killCount = 0;
+        let gameTime = 0;
+        let gameTimer = null;
+        let foodSpawnTimer = null;
+        let enemySpawnTimer = null;
+        let playerMoveTimer = null;
+
+        // 音效系统
+        let soundEnabled = true;
+        let audioContext = null;
+        let audioInitialized = false;
+        const audioStatus = document.getElementById('audioStatus');
+        let isBoosting = false;
+        let boostSoundSource = null;
+
+        const soundBuffers = {
+            bgMusic: null,
+            eatNormalFood: null,
+            eatAdvancedFood: null,
+            eatSpecialFood: null,
+            enemyKilled: null,
+            playerDead: null,
+            victory: null,
+            buttonClick: null,
+            boostStart: null,
+            boostLoop: null,
+            boostEnd: null
+        };
+
+        // 2. 工具函数
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        // === 音效系统 ===
+        function initAudioContext() {
+            if (audioContext) return;
+            
+            try {
+                window.AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioContext = new AudioContext();
+                audioInitialized = true;
+                audioStatus.textContent = "音频初始化成功";
+                createBuiltInSounds();
+            } catch (e) {
+                audioStatus.textContent = `音频初始化失败: ${e.message}`;
+                soundEnabled = false;
+                document.getElementById('soundIcon').textContent = '🔇';
+                document.getElementById('soundText').textContent = '浏览器不支持音频';
+            }
+        }
+
+        function createBuiltInSounds() {
+            // 普通食物音效（绿色，+10）
+            soundBuffers.eatNormalFood = createSoundBuffer({
+                type: 'sine',
+                freq: [392],
+                duration: [0.1],
+                volume: 0.5
+            });
+
+            // 高级食物音效（金色，+40）
+            soundBuffers.eatAdvancedFood = createSoundBuffer({
+                type: 'sine',
+                freq: [523, 659],
+                duration: [0.1, 0.1],
+                volume: 0.7
+            });
+
+            // 特殊食物音效（红色，+25）
+            soundBuffers.eatSpecialFood = createSoundBuffer({
+                type: 'square',
+                freq: [659, 784, 880],
+                duration: [0.1, 0.1, 0.2],
+                volume: 0.8
+            });
+
+            soundBuffers.enemyKilled = createSoundBuffer({
+                type: 'sawtooth',
+                freq: [100, 80, 60, 40],
+                duration: [0.05, 0.05, 0.05, 0.1],
+                volume: 0.5
+            });
+
+            soundBuffers.playerDead = createSoundBuffer({
+                type: 'sine',
+                freq: [440, 330, 220],
+                duration: [0.2, 0.2, 0.3],
+                volume: 0.8
+            });
+
+            soundBuffers.victory = createSoundBuffer({
+                type: 'sine',
+                freq: [523, 659, 784, 1046],
+                duration: [0.15, 0.15, 0.15, 0.3],
+                volume: 0.8
+            });
+
+            soundBuffers.buttonClick = createSoundBuffer({
+                type: 'sine',
+                freq: [659],
+                duration: [0.1],
+                volume: 1.0
+            });
+
+            soundBuffers.boostStart = createSoundBuffer({
+                type: 'square',
+                freq: [880],
+                duration: [0.08],
+                volume: 0.6
+            });
+
+            soundBuffers.boostLoop = createSoundBuffer({
+                type: 'sawtooth',
+                freq: [150, 160],
+                duration: [0.2, 0.2],
+                volume: 0.2,
+                loop: true
+            });
+
+            soundBuffers.boostEnd = createSoundBuffer({
+                type: 'sine',
+                freq: [880, 659],
+                duration: [0.05, 0.08],
+                volume: 0.5
+            });
+
+            soundBuffers.bgMusic = createSoundBuffer({
+                type: 'sine',
+                freq: [261, 294, 329, 349, 392, 440, 493, 523],
+                duration: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+                volume: 0.3,
+                loop: true
+            });
+
+            audioStatus.textContent = "内置音效创建完成（含三种食物+加速音效）";
+        }
+
+        function createSoundBuffer(options) {
+            const buffer = audioContext.createBuffer(1, audioContext.sampleRate * 2, audioContext.sampleRate);
+            const data = buffer.getChannelData(0);
+            let time = 0;
+
+            for (let i = 0; i < options.freq.length; i++) {
+                const freq = options.freq[i];
+                const duration = options.duration[i];
+                const endTime = time + duration * audioContext.sampleRate;
+
+                for (; time < endTime; time++) {
+                    const t = time / audioContext.sampleRate;
+                    switch (options.type) {
+                        case 'sine':
+                            data[time] = Math.sin(2 * Math.PI * freq * t) * options.volume;
+                            break;
+                        case 'square':
+                            data[time] = Math.sign(Math.sin(2 * Math.PI * freq * t)) * options.volume;
+                            break;
+                        case 'sawtooth':
+                            data[time] = (2 * (t * freq - Math.floor(t * freq + 0.5))) * options.volume;
+                            break;
+                    }
+                    const fade = Math.min(1, time / 100, (endTime - time) / 100);
+                    data[time] *= fade;
+                }
+            }
+
+            return buffer;
+        }
+
+        function playSound(soundName, volume = 1, loop = false) {
+            if (!soundEnabled || !audioInitialized || !soundBuffers[soundName]) return null;
+
+            try {
+                const source = audioContext.createBufferSource();
+                source.buffer = soundBuffers[soundName];
+                source.loop = loop;
+
+                const gainNode = audioContext.createGain();
+                gainNode.gain.value = volume;
+
+                source.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                source.start(0);
+
+                return { source, gainNode };
+            } catch (e) {
+                audioStatus.textContent = `播放音效失败: ${e.message}`;
+                return null;
+            }
+        }
+
+        function playBoostSound(isBoostActive) {
+            if (!soundEnabled || !audioInitialized) return;
+
+            if (isBoostActive && !isBoosting) {
+                isBoosting = true;
+                playSound('boostStart', 0.6);
+                boostSoundSource = playSound('boostLoop', 0.2, true);
+            } else if (!isBoostActive && isBoosting) {
+                isBoosting = false;
+                if (boostSoundSource) {
+                    boostSoundSource.source.stop();
+                    boostSoundSource = null;
+                }
+                playSound('boostEnd', 0.5);
+            }
+        }
+
+        function toggleSound() {
+            initAudioContext();
+            
+            soundEnabled = !soundEnabled;
+            const soundIcon = document.getElementById('soundIcon');
+            const soundText = document.getElementById('soundText');
+            
+            if (soundEnabled) {
+                soundIcon.textContent = '🔊';
+                soundText.textContent = '开启音效';
+                if (audioContext.state === 'suspended') audioContext.resume();
+            } else {
+                soundIcon.textContent = '🔇';
+                soundText.textContent = '关闭音效';
+                if (audioContext.state === 'running') audioContext.suspend();
+                if (boostSoundSource) {
+                    boostSoundSource.source.stop();
+                    boostSoundSource = null;
+                }
+                isBoosting = false;
+            }
+        }
+
+        function isPositionValid(x, y, excludeSnake = null, ignoreFood = false, isEnemyCheck = false) {
+            if (x < 0 || x >= canvasWidth / gridSize || y < 0 || y >= canvasHeight / gridSize) return false;
+
+            for (let segment of playerSnake.body) {
+                if (segment.x === x && segment.y === y) return false;
+            }
+
+            for (let enemy of enemies) {
+                if (enemy === excludeSnake) continue;
+                for (let segment of enemy.body) {
+                    if (segment.x === x && segment.y === y) return false;
+                }
+            }
+
+            if ((isEnemyCheck && !ignoreFood) || (!ignoreFood && !isEnemyCheck)) {
+                for (let food of foods) {
+                    if (food.x === x && food.y === y) return false;
+                }
+            }
+
+            return true;
+        }
+
+        // 3. 主角蛇控制
+        document.addEventListener('keydown', (e) => {
+            if (gameState !== 'running') return;
+
+            switch (e.key.toUpperCase()) {
+                case 'W':
+                    if (playerSnake.direction !== 'down') playerSnake.direction = 'up';
+                    break;
+                case 'S':
+                    if (playerSnake.direction !== 'up') playerSnake.direction = 'down';
+                    break;
+                case 'A':
+                    if (playerSnake.direction !== 'right') playerSnake.direction = 'left';
+                    break;
+                case 'D':
+                    if (playerSnake.direction !== 'left') playerSnake.direction = 'right';
+                    break;
+                case 'J':
+                    playerSnake.isBoosting = true;
+                    playBoostSound(true);
+                    break;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key.toUpperCase() === 'J') {
+                playerSnake.isBoosting = false;
+                playBoostSound(false);
+            }
+        });
+
+        // 食物积分配置
+        const foodTypes = {
+            normal: { color: '#2E7D32', score: 10, spawnRate: 0.85 },
+            advanced: { color: '#FFC107', score: 40, spawnRate: 0.1 },
+            special: { color: '#F44336', score: 25, spawnRate: 0.05, effect: 'speed' }
+        };
+
+        const DEFAULT_PLAYER_SPEED = 180; 
+        let playerSnake = {
+            body: [
+                { x: 10, y: 10 },
+                { x: 9, y: 10 },
+                { x: 8, y: 10 }
+            ],
+            direction: 'right',
+            speed: DEFAULT_PLAYER_SPEED,
+            boostSpeed: 100,
+            isBoosting: false,
+            color: '#4CAF50'
+        };
+
+        let bgMusicSource = null;
+        function movePlayerSnake() {
+            if (gameState !== 'running') return;
+
+            const head = { ...playerSnake.body[0] };
+            switch (playerSnake.direction) {
+                case 'up': head.y--; break;
+                case 'down': head.y++; break;
+                case 'left': head.x--; break;
+                case 'right': head.x++; break;
+            }
+
+            // 边界检测
+            if (head.x < 0 || head.x >= canvasWidth / gridSize || head.y < 0 || head.y >= canvasHeight / gridSize) {
+                playSound('playerDead', 0.8);
+                playBoostSound(false);
+                endGame('撞到墙体了！');
+                return;
+            }
+
+            // 自碰撞检测
+            let selfCollision = false;
+            for (let i = 1; i < playerSnake.body.length; i++) {
+                if (playerSnake.body[i].x === head.x && playerSnake.body[i].y === head.y) {
+                    selfCollision = true;
+                    break;
+                }
+            }
+            if (selfCollision) {
+                playSound('playerDead', 0.8);
+                playBoostSound(false);
+                endGame('撞到自己了！');
+                return;
+            }
+
+            // 玩家蛇头碰到敌对蛇
+            let playerHitEnemy = false;
+            for (let i = 0; i < enemies.length; i++) {
+                const enemy = enemies[i];
+                for (let segment of enemy.body) {
+                    if (head.x === segment.x && head.y === segment.y) {
+                        playerHitEnemy = true;
+                        break;
+                    }
+                }
+                if (playerHitEnemy) break;
+            }
+            if (playerHitEnemy) {
+                playSound('playerDead', 0.8);
+                playBoostSound(false);
+                endGame('被敌人击杀！');
+                return;
+            }
+
+            // 添加新头部
+            playerSnake.body.unshift(head);
+
+            // 检查是否吃到食物
+            let ateFood = false;
+            for (let i = 0; i < foods.length; i++) {
+                const food = foods[i];
+                if (head.x === food.x && head.y === food.y) {
+                    score += food.type.score;
+                    snakeLength = playerSnake.body.length;
+                    
+                    // 播放对应食物音效
+                    if (food.type === foodTypes.normal) {
+                        playSound('eatNormalFood', 0.5);
+                    } else if (food.type === foodTypes.advanced) {
+                        playSound('eatAdvancedFood', 0.7);
+                    } else if (food.type === foodTypes.special) {
+                        playSound('eatSpecialFood', 0.8);
+                        // 特殊食物加速效果
+                        playerSnake.speed = playerSnake.boostSpeed;
+                        setTimeout(() => {
+                            if (gameState === 'running' && !playerSnake.isBoosting) {
+                                playerSnake.speed = DEFAULT_PLAYER_SPEED;
+                            }
+                        }, 3000);
+                    }
+
+                    updateGameInfo();
+                    foods.splice(i, 1);
+                    ateFood = true;
+                    checkAndAddMinFood();
+                    break;
+                }
+            }
+
+            if (!ateFood) {
+                playerSnake.body.pop();
+            }
+
+            // 检查胜利条件（隐藏，玩家看不到具体数值）
+            checkVictoryConditions();
+
+            const currentSpeed = playerSnake.isBoosting ? playerSnake.boostSpeed : playerSnake.speed;
+            playerMoveTimer = setTimeout(movePlayerSnake, currentSpeed);
+        }
+
+        // 4. 食物系统
+        let foods = [];
+        const FOOD_CONFIG = {
+            earlyStageTime: 60, 
+            earlyMax: 3,        
+            lateMin: 1,         
+            lateMax: 5,         
+            spawnInterval: 2400
+        };
+
+        function checkAndAddMinFood() {
+            if (gameState !== 'running') return;
+            if (foods.length < 1) generateFood();
+        }
+
+        function spawnFood() {
+            if (gameState !== 'running') return;
+
+            checkAndAddMinFood();
+
+            let currentMaxFood, currentMinFood;
+            if (gameTime < FOOD_CONFIG.earlyStageTime) {
+                currentMaxFood = FOOD_CONFIG.earlyMax;
+                currentMinFood = 1;
+            } else {
+                currentMaxFood = FOOD_CONFIG.lateMax;
+                currentMinFood = FOOD_CONFIG.lateMin;
+            }
+
+            if (foods.length >= currentMaxFood) return;
+            
+            if (foods.length < currentMinFood) {
+                generateFood();
+            } else if (Math.random() > 0.4) {
+                generateFood();
+            }
+        }
+
+        function generateFood() {
+            const random = Math.random();
+            let foodType;
+            
+            if (random < foodTypes.normal.spawnRate) {
+                foodType = foodTypes.normal;
+            } else if (random < foodTypes.normal.spawnRate + foodTypes.advanced.spawnRate) {
+                foodType = foodTypes.advanced;
+            } else {
+                foodType = foodTypes.special;
+            }
+
+            let x, y;
+            let attempts = 0;
+            do {
+                x = getRandomInt(0, (canvasWidth / gridSize) - 1);
+                y = getRandomInt(0, (canvasHeight / gridSize) - 1);
+                attempts++;
+            } while (!isPositionValid(x, y) && attempts < 200);
+
+            if (attempts < 200) {
+                foods.push({ x, y, type: foodType });
+            }
+        }
+
+        // 5. 敌人AI系统
+        let enemies = [];
+        const DEFAULT_ENEMY_BASE_SPEED = 300; 
+        const ENEMY_SPEED_MAX = 200; 
+        const ENEMY_SPEED_GROWTH_RATE = 0.3; 
+        
+        const ENEMY_COUNT_CONFIG = {
+            earlyStageTime: 180,
+            earlyMaxCount: 5,
+            lateMaxCount: 10
+        };
+        const DEFAULT_ENEMY_SPAWN_INTERVAL = 10000;
+        const ENEMY_SPAWN_INTERVAL_MIN = 4000;
+        const ENEMY_SPAWN_INTERVAL_DECREASE = 30;
+        
+        const ENEMY_MIN_LENGTH_INIT = 2;
+        const ENEMY_MAX_LENGTH_INIT = 3;
+        const ENEMY_LENGTH_GROWTH_MAX = 7;
+        const ENEMY_LENGTH_GROWTH_RATE = 0.04;
+
+        let enemyBaseSpeed = DEFAULT_ENEMY_BASE_SPEED;
+        let enemySpawnInterval = DEFAULT_ENEMY_SPAWN_INTERVAL;
+        let enemyMinLength = ENEMY_MIN_LENGTH_INIT;
+        let enemyMaxLength = ENEMY_MAX_LENGTH_INIT;
+
+        function createEnemy() {
+            if (gameState !== 'running') return;
+
+            let currentMaxEnemy;
+            if (gameTime < ENEMY_COUNT_CONFIG.earlyStageTime) {
+                currentMaxEnemy = ENEMY_COUNT_CONFIG.earlyMaxCount;
+            } else {
+                currentMaxEnemy = ENEMY_COUNT_CONFIG.lateMaxCount;
+            }
+            
+            if (enemies.length >= currentMaxEnemy) return;
+
+            let x, y;
+            let attempts = 0;
+            do {
+                x = getRandomInt(0, (canvasWidth / gridSize) - 1);
+                y = getRandomInt(0, (canvasHeight / gridSize) - 1);
+                attempts++;
+            } while (!isPositionValid(x, y, null, false, true) && attempts < 100);
+
+            if (attempts >= 100) return;
+
+            const timeFactor = Math.min(gameTime / 150, 1);
+            const length = getRandomInt(
+                enemyMinLength,
+                Math.floor(ENEMY_MAX_LENGTH_INIT + timeFactor * (ENEMY_LENGTH_GROWTH_MAX - ENEMY_MAX_LENGTH_INIT) * ENEMY_LENGTH_GROWTH_RATE)
+            );
+
+            const body = [];
+            const directions = ['up', 'down', 'left', 'right'];
+            const direction = directions[getRandomInt(0, 3)];
+            
+            body.push({ x, y });
+            for (let i = 1; i < length; i++) {
+                let newX = x;
+                let newY = y;
+                switch (direction) {
+                    case 'up': newY += i; break;
+                    case 'down': newY -= i; break;
+                    case 'left': newX += i; break;
+                    case 'right': newX -= i; break;
+                }
+                body.push({ x: newX, y: newY });
+            }
+
+            // 提高敌人失误率（增加被击杀概率）
+            const aiType = Math.random() < 0.75 ? 'normal' : 'hunter';
+            const enemySpeed = enemyBaseSpeed + getRandomInt(-10, 10);
+
+            enemies.push({
+                body: body,
+                direction: direction,
+                speed: enemySpeed,
+                color: aiType === 'hunter' ? '#9C27B0' : '#FF9800',
+                aiType: aiType,
+                length: length,
+                lastMoveTime: Date.now()
+            });
+        }
+
+        // 敌人移动（击杀敌人+50积分）
+        function moveEnemies() {
+            if (gameState !== 'running') return;
+
+            const now = Date.now();
+            for (let i = 0; i < enemies.length; i++) {
+                const enemy = enemies[i];
+                
+                if (now - enemy.lastMoveTime < enemy.speed) continue;
+                enemy.lastMoveTime = now;
+
+                const head = { ...enemy.body[0] };
+                let newDirection = enemy.direction;
+                const possibleDirections = ['up', 'down', 'left', 'right'];
+                const oppositeDir = {
+                    up: 'down',
+                    down: 'up',
+                    left: 'right',
+                    right: 'left'
+                };
+                const filteredDirections = possibleDirections.filter(dir => dir !== oppositeDir[enemy.direction]);
+
+                // 提高普通AI失误率（从15%→30%）
+                if (enemy.aiType === 'normal') {
+                    const safeDirections = [];
+                    for (const dir of filteredDirections) {
+                        let testX = head.x;
+                        let testY = head.y;
+                        switch (dir) {
+                            case 'up': testY--; break;
+                            case 'down': testY++; break;
+                            case 'left': testX--; break;
+                            case 'right': testX++; break;
+                        }
+                        if (isPositionValid(testX, testY, enemy, false, true)) {
+                            safeDirections.push(dir);
+                        }
+                    }
+                    // 失误率从15%→30%
+                    if (safeDirections.length > 0 && Math.random() > 0.3) {
+                        newDirection = safeDirections[getRandomInt(0, safeDirections.length - 1)];
+                    } else if (filteredDirections.length > 0) {
+                        newDirection = filteredDirections[getRandomInt(0, filteredDirections.length - 1)];
+                    }
+                }
+
+                // 提高猎杀AI失误率（从35%→50%）
+                if (enemy.aiType === 'hunter') {
+                    const playerHead = playerSnake.body[0];
+                    const dx = playerHead.x - head.x;
+                    const dy = playerHead.y - head.y;
+                    const preferredDirections = [];
+
+                    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+                        if (dx > 0 && filteredDirections.includes('right')) preferredDirections.push('right');
+                        if (dx < 0 && filteredDirections.includes('left')) preferredDirections.push('left');
+                        if (dy > 0 && filteredDirections.includes('down')) preferredDirections.push('down');
+                        if (dy < 0 && filteredDirections.includes('up')) preferredDirections.push('up');
+                    }
+
+                    const safePreferred = [];
+                    for (const dir of preferredDirections) {
+                        let testX = head.x;
+                        let testY = head.y;
+                        switch (dir) {
+                            case 'up': testY--; break;
+                            case 'down': testY++; break;
+                            case 'left': testX--; break;
+                            case 'right': testX++; break;
+                        }
+                        if (isPositionValid(testX, testY, enemy, false, true)) {
+                            safePreferred.push(dir);
+                        }
+                    }
+
+                    // 失误率从35%→50%
+                    if (safePreferred.length > 0 && Math.random() > 0.5) {
+                        newDirection = safePreferred[getRandomInt(0, safePreferred.length - 1)];
+                    } else {
+                        const safeDirections = [];
+                        for (const dir of filteredDirections) {
+                            let testX = head.x;
+                            let testY = head.y;
+                            switch (dir) {
+                                case 'up': testY--; break;
+                                case 'down': testY++; break;
+                                case 'left': testX--; break;
+                                case 'right': testX++; break;
+                            }
+                            if (isPositionValid(testX, testY, enemy, false, true)) {
+                                safeDirections.push(dir);
+                            }
+                        }
+                        newDirection = safeDirections.length > 0 ? safeDirections[getRandomInt(0, safeDirections.length - 1)] : enemy.direction;
+                    }
+                }
+
+                enemy.direction = newDirection;
+                switch (enemy.direction) {
+                    case 'up': head.y--; break;
+                    case 'down': head.y++; break;
+                    case 'left': head.x--; break;
+                    case 'right': head.x++; break;
+                }
+
+                let isDead = false;
+                
+                if (head.x < 0 || head.x >= canvasWidth / gridSize || head.y < 0 || head.y >= canvasHeight / gridSize) {
+                    isDead = true;
+                }
+                
+                for (let j = 1; j < enemy.body.length; j++) {
+                    if (enemy.body[j].x === head.x && enemy.body[j].y === head.y) {
+                        isDead = true;
+                        break;
+                    }
+                }
+                
+                if (!isDead) {
+                    for (let j = 0; j < enemies.length; j++) {
+                        if (i === j) continue;
+                        const otherEnemy = enemies[j];
+                        for (let segment of otherEnemy.body) {
+                            if (segment.x === head.x && segment.y === head.y) {
+                                isDead = true;
+                                break;
+                            }
+                        }
+                        if (isDead) break;
+                    }
+                }
+                
+                if (!isDead) {
+                    for (let segment of playerSnake.body) {
+                        if (head.x === segment.x && head.y === segment.y) {
+                            isDead = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (isDead) {
+                    playSound('enemyKilled', 0.5);
+                    // 击杀敌人+50积分
+                    score += 50;
+                    killCount++;
+                    updateGameInfo();
+                    checkVictoryConditions();
+                    enemies.splice(i, 1);
+                    i--;
+                    continue;
+                }
+
+                enemy.body.unshift(head);
+                enemy.body.pop();
+            }
+
+            render();
+            setTimeout(moveEnemies, 50);
+        }
+
+        // 6. 游戏渲染
+        function render() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+            // 绘制网格
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            for (let x = 0; x < canvasWidth; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvasHeight);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvasHeight; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvasWidth, y);
+                ctx.stroke();
+            }
+
+            // 绘制主角蛇
+            playerSnake.body.forEach((segment, index) => {
+                ctx.fillStyle = index === 0 ? '#66BB6A' : playerSnake.color;
+                ctx.fillRect(
+                    segment.x * gridSize + 1,
+                    segment.y * gridSize + 1,
+                    gridSize - 2,
+                    gridSize - 2
+                );
+            });
+
+            // 绘制敌人
+            enemies.forEach(enemy => {
+                enemy.body.forEach((segment, index) => {
+                    ctx.fillStyle = index === 0 ? '#BA68C8' : enemy.color;
+                    ctx.fillRect(
+                        segment.x * gridSize + 1,
+                        segment.y * gridSize + 1,
+                        gridSize - 2,
+                        gridSize - 2
+                    );
+                });
+            });
+
+            // 绘制食物
+            foods.forEach(food => {
+                ctx.fillStyle = food.type.color;
+                if (food.type === foodTypes.special) {
+                    ctx.beginPath();
+                    ctx.arc(
+                        food.x * gridSize + gridSize / 2,
+                        food.y * gridSize + gridSize / 2,
+                        gridSize / 2 - 2,
+                        0,
+                        Math.PI * 2
+                    );
+                    ctx.fill();
+                } else if (food.type === foodTypes.advanced) {
+                    ctx.fillRect(
+                        food.x * gridSize + 1,
+                        food.y * gridSize + 1,
+                        gridSize - 2,
+                        gridSize - 2
+                    );
+                    ctx.strokeStyle = '#FFFF00';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(
+                        food.x * gridSize + 2,
+                        food.y * gridSize + 2,
+                        gridSize - 4,
+                        gridSize - 4
+                    );
+                } else {
+                    ctx.fillRect(
+                        food.x * gridSize + 1,
+                        food.y * gridSize + 1,
+                        gridSize - 2,
+                        gridSize - 2
+                    );
+                }
+            });
+        }
+
+        // 7. 游戏信息更新
+        function updateGameInfo() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('length').textContent = playerSnake.body.length;
+            document.getElementById('killCount').textContent = killCount;
+            document.getElementById('gameTime').textContent = gameTime;
+        }
+
+        // === 核心优化1：降低胜利条件（2500积分/长度100/击杀25） ===
+        const victoryConditions = {
+            length: 100,     // 保持100
+            killCount: 25,   // 从50→25
+            score: 2500      // 从5000→2500
+        };
+
+        // 8. 胜利条件检查（优化2：隐藏具体数值，只提示胜利）
+        function checkVictoryConditions() {
+            if (gameState !== 'running') return;
+
+            let victoryReason = '';
+            // 隐藏具体达成条件，统一提示
+            if (playerSnake.body.length >= victoryConditions.length) {
+                victoryReason = '恭喜你获得胜利！';
+            } else if (killCount >= victoryConditions.killCount) {
+                victoryReason = '恭喜你获得胜利！';
+            } else if (score >= victoryConditions.score) {
+                victoryReason = '恭喜你获得胜利！';
+            }
+
+            if (victoryReason) {
+                playSound('victory', 0.8);
+                playBoostSound(false);
+                if (bgMusicSource) {
+                    bgMusicSource.source.stop();
+                    bgMusicSource = null;
+                }
+                
+                gameState = 'victory';
+                clearInterval(gameTimer);
+                clearInterval(foodSpawnTimer);
+                clearInterval(enemySpawnTimer);
+                clearTimeout(playerMoveTimer);
+                
+                const endModal = document.getElementById('endModal');
+                const endTitle = document.getElementById('endTitle');
+                const endDesc = document.getElementById('endDesc');
+                
+                endTitle.textContent = '游戏胜利！';
+                endDesc.textContent = victoryReason + `\n最终积分：${score} | 长度：${playerSnake.body.length} | 击杀：${killCount}`;
+                endModal.classList.remove('hidden');
+            }
+        }
+
+        // 9. 游戏控制函数
+        function startGame() {
+            initAudioContext();
+            playSound('buttonClick');
+            
+            gameState = 'running';
+            document.getElementById('startModal').classList.add('hidden');
+            
+            if (soundEnabled && audioInitialized) {
+                bgMusicSource = playSound('bgMusic', 0.3, true);
+            }
+            
+            const currentSpeed = playerSnake.isBoosting ? playerSnake.boostSpeed : playerSnake.speed;
+            playerMoveTimer = setTimeout(movePlayerSnake, currentSpeed);
+
+            gameTimer = setInterval(() => {
+                gameTime++;
+                updateGameInfo();
+
+                if (gameTime % 40 === 0) {
+                    const newSpawnInterval = Math.max(ENEMY_SPAWN_INTERVAL_MIN, enemySpawnInterval - ENEMY_SPAWN_INTERVAL_DECREASE);
+                    if (newSpawnInterval !== enemySpawnInterval) {
+                        enemySpawnInterval = newSpawnInterval;
+                        clearInterval(enemySpawnTimer);
+                        enemySpawnTimer = setInterval(createEnemy, enemySpawnInterval);
+                    }
+
+                    const newEnemySpeed = Math.max(ENEMY_SPEED_MAX, enemyBaseSpeed - ENEMY_SPEED_GROWTH_RATE);
+                    if (newEnemySpeed !== enemyBaseSpeed) {
+                        enemyBaseSpeed = newEnemySpeed;
+                        enemies.forEach(enemy => {
+                            enemy.speed = newEnemySpeed + getRandomInt(-10, 10);
+                        });
+                    }
+                }
+            }, 1000);
+
+            foodSpawnTimer = setInterval(spawnFood, FOOD_CONFIG.spawnInterval);
+            enemySpawnTimer = setInterval(createEnemy, enemySpawnInterval);
+
+            moveEnemies();
+            generateFood();
+            setTimeout(() => createEnemy(), 3000);
+
+            render();
+        }
+
+        function endGame(reason) {
+            if (bgMusicSource) {
+                bgMusicSource.source.stop();
+                bgMusicSource = null;
+            }
+            playBoostSound(false);
+            
+            gameState = 'end';
+            clearInterval(gameTimer);
+            clearInterval(foodSpawnTimer);
+            clearInterval(enemySpawnTimer);
+            clearTimeout(playerMoveTimer);
+            
+            const endModal = document.getElementById('endModal');
+            const endTitle = document.getElementById('endTitle');
+            const endDesc = document.getElementById('endDesc');
+            
+            endTitle.textContent = '游戏结束';
+            endDesc.textContent = `${reason} 最终积分：${score} | 长度：${playerSnake.body.length} | 击杀：${killCount}`;
+            endModal.classList.remove('hidden');
+        }
+
+        function resetGame() {
+            playSound('buttonClick');
+            
+            if (bgMusicSource) {
+                bgMusicSource.source.stop();
+                bgMusicSource = null;
+            }
+            playBoostSound(false);
+            
+            clearInterval(gameTimer);
+            clearInterval(foodSpawnTimer);
+            clearInterval(enemySpawnTimer);
+            clearTimeout(playerMoveTimer);
+
+            gameState = 'ready';
+            score = 0;
+            snakeLength = 3;
+            killCount = 0;
+            gameTime = 0;
+            isBoosting = false;
+
+            playerSnake = {
+                body: [
+                    { x: 10, y: 10 },
+                    { x: 9, y: 10 },
+                    { x: 8, y: 10 }
+                ],
+                direction: 'right',
+                speed: DEFAULT_PLAYER_SPEED,
+                boostSpeed: 100,
+                isBoosting: false,
+                color: '#4CAF50'
+            };
+
+            enemies = [];
+            enemyBaseSpeed = DEFAULT_ENEMY_BASE_SPEED;
+            enemySpawnInterval = DEFAULT_ENEMY_SPAWN_INTERVAL;
+            enemyMinLength = ENEMY_MIN_LENGTH_INIT;
+            enemyMaxLength = ENEMY_MAX_LENGTH_INIT;
+
+            foods = [];
+
+            document.getElementById('endModal').classList.add('hidden');
+            document.getElementById('startModal').classList.remove('hidden');
+
+            updateGameInfo();
+            render();
+        }
+
+        // 初始化
+        render();
+
+        document.querySelectorAll('.modal-btn').forEach(btn => {
+            btn.addEventListener('click', initAudioContext);
+        });
+        document.querySelector('.sound-control').addEventListener('click', initAudioContext);
+    </script>
+</body>
+</html>
